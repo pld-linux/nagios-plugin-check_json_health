@@ -106,6 +106,7 @@ def main():
                 'Cache-Control': 'no-cache',
             })
             resp = conn.getresponse()
+            content_type = resp.getheader('Content-Type', '')
             body = resp.read().decode('utf-8')
             conn.close()
         else:
@@ -113,7 +114,13 @@ def main():
                                         headers={'Cache-Control': 'no-cache'})
             with urllib.request.urlopen(req, timeout=args.timeout,
                                         context=ctx) as resp:
+                content_type = resp.getheader('Content-Type', '')
                 body = resp.read().decode('utf-8')
+
+        if 'json' not in content_type:
+            snippet = sanitize(body[:200]) if body else '(empty response)'
+            print(f'UNKNOWN - {url}: unexpected Content-Type: {sanitize(content_type)} [{snippet}]')
+            sys.exit(UNKNOWN)
     except Exception as e:
         # Connectivity/infrastructure failure = UNKNOWN (service state is indeterminate)
         print(f'UNKNOWN - {url}: {e}')
@@ -148,9 +155,10 @@ def main():
         print(output)
         sys.exit(exit_code)
     except Exception as e:
-        # JSON parse or field extraction failure = CRITICAL (service returned garbage)
-        print(f'CRITICAL - {url}: {e}')
-        sys.exit(CRITICAL)
+        # JSON parse or field extraction failure = UNKNOWN (service state is indeterminate)
+        snippet = sanitize(body[:200]) if body else '(empty response)'
+        print(f'UNKNOWN - {url}: {e} [{snippet}]')
+        sys.exit(UNKNOWN)
 
 
 if __name__ == '__main__':
