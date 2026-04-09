@@ -25,13 +25,16 @@ Installation:
   chmod +x /usr/lib/nagios/plugins/check_json_health
 
 Usage:
-  check_json_health -H <hostname> [-p <port>] [-u <uri>] [-t <timeout>]
+  check_json_health -H <hostname> [-I <ip>] [-p <port>] [-u <uri>] [-t <timeout>]
   check_json_health -H k-gw-prod.example.com -u /nagios/ --perfdata-field details
   check_json_health -H myapp.example.com -u /health -k --no-ssl -p 8080
+  check_json_health -H myapp.example.com -I 193.239.44.130 -u /nagios/ksef.php
 """
 
 import argparse
+import http.client
 import json
+import socket
 import ssl
 import sys
 import urllib.request
@@ -52,7 +55,9 @@ def main():
     parser = argparse.ArgumentParser(
         description='Nagios plugin: check a JSON health endpoint')
     parser.add_argument('-H', '--hostname', required=True,
-                        help='Server hostname or IP')
+                        help='Server hostname (used for Host header and SNI)')
+    parser.add_argument('-I', '--ip', default=None,
+                        help='IP address to connect to (default: resolve -H)')
     parser.add_argument('-p', '--port', type=int, default=443,
                         help='Port (default: 443)')
     parser.add_argument('-u', '--uri', default='/nagios/',
@@ -86,9 +91,29 @@ def main():
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
 
-        req = urllib.request.Request(url, headers={'Cache-Control': 'no-cache'})
-        with urllib.request.urlopen(req, timeout=args.timeout, context=ctx) as resp:
+        if args.ip:
+            # Connect TCP to IP, wrap SSL with hostname for SNI + cert check
+            sock = socket.create_connection((args.ip, args.port),
+                                            timeout=args.timeout)
+            if ctx:
+                sock = ctx.wrap_socket(sock, server_hostname=args.hostname)
+            conn = (http.client.HTTPSConnection(args.hostname, args.port)
+                    if ctx else
+                    http.client.HTTPConnection(args.ip, args.port))
+            conn.sock = sock
+            conn.request('GET', args.uri, headers={
+                'Host': args.hostname,
+                'Cache-Control': 'no-cache',
+            })
+            resp = conn.getresponse()
             body = resp.read().decode('utf-8')
+            conn.close()
+        else:
+            req = urllib.request.Request(url,
+                                        headers={'Cache-Control': 'no-cache'})
+            with urllib.request.urlopen(req, timeout=args.timeout,
+                                        context=ctx) as resp:
+                body = resp.read().decode('utf-8')
     except Exception as e:
         # Connectivity/infrastructure failure = UNKNOWN (service state is indeterminate)
         print(f'UNKNOWN - {url}: {e}')

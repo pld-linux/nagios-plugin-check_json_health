@@ -2,7 +2,7 @@
 Summary:	Nagios plugin to check JSON health endpoints
 Name:		nagios-plugin-%{plugin}
 Version:	1.0
-Release:	1
+Release:	2
 License:	Public Domain (CC0 1.0)
 Group:		Networking
 Source0:	%{plugin}.py
